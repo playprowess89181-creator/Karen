@@ -99,6 +99,10 @@ class Cart(models.Model):
     shipping_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     deposit_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     notes = models.TextField(null=True, blank=True)
+    sales_person = models.CharField(max_length=255, null=True, blank=True)
+    doc_ref = models.CharField(max_length=255, null=True, blank=True)
+    customer_code = models.CharField(max_length=255, null=True, blank=True)
+    gross_weight = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     
     def __str__(self):
         return f"Cart for {self.customer.name} (ID: {self.id})"

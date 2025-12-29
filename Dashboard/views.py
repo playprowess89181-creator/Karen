@@ -264,48 +264,58 @@ def form_view(request):
 
                 wb = load_workbook(xlsx_file, data_only=True)
                 sheet = wb.active
-                
-                # Check if the Excel file has the minimum required columns
-                first_row = next(sheet.iter_rows(min_row=2, max_row=2, values_only=True), None)
-                if first_row is None or len(first_row) < 13:
-                    messages.error(request, f'Excel file must have at least 13 columns. Found {len(first_row) if first_row else 0} columns. Required columns: Parent Code, Child Code, Location, Stock, KPO, Pairing Sets, Weight, Thai Baht, USD Rate, US Dollar, AUD Rate, Note 1, Note 2, Images (optional)')
+                header_values = [str(c.value).strip().lower() if c.value is not None else '' for c in sheet[1]]
+                def find_idx(candidates):
+                    for name in candidates:
+                        if name in header_values:
+                            return header_values.index(name)
+                    return None
+                idx_parent = find_idx(['parent code','parent_code'])
+                idx_child = find_idx(['child code','child_code'])
+                idx_location = find_idx(['location'])
+                idx_stock = find_idx(['qty','stock','quantity'])
+                idx_kpo = find_idx(['kpo'])
+                idx_pairing = find_idx(['pairing set','pairing_set','pairing sets'])
+                idx_weight = find_idx(['weight'])
+                idx_thai_baht = find_idx(['thai baht','thai_baht','thb'])
+                idx_usd_rate = find_idx(['usd rate','usd_rate','usd dollar','usd'])
+                idx_euro_rate = find_idx(['euro rate','euro_rate','eur'])
+                idx_note1 = find_idx(['note 1','note_1'])
+                idx_note2 = find_idx(['note 2','note_2'])
+                idx_category = find_idx(['category','tag'])
+                idx_unit = find_idx(['unit'])
+                idx_description = find_idx(['product description','description'])
+                idx_images_names = find_idx(['images','image names','images names','image_names'])
+                required_indices = [idx_parent, idx_child, idx_location, idx_stock, idx_weight, idx_thai_baht, idx_usd_rate, idx_euro_rate, idx_note1, idx_note2]
+                if any(i is None for i in required_indices):
+                    messages.error(request,'Missing required columns in Excel header')
                     return redirect("form")
-                
                 for fields in sheet.iter_rows(min_row=2, values_only=True):
-                    # Skip empty rows
-                    if not fields or not fields[0]:
+                    if not fields or (idx_parent is not None and not fields[idx_parent]):
                         continue
-                        
-                    # Ensure we have enough fields to prevent IndexError
-                    if len(fields) < 13:
-                        messages.error(request, f'Row with Parent Code "{fields[0] if fields else "Unknown"}" has insufficient columns ({len(fields)}). Skipping this row.')
-                        continue
-
-                    parent_code = fields[0]
-                    child_code = fields[1]
-                    location = fields[2]
-                    stock = fields[3]
-                    kpo = fields[4]
-                    pairing_sets_data = fields[5].split(',') if fields[5] else None
-                    
-                    # Handle weight conversion with error checking
+                    parent_code = fields[idx_parent]
+                    child_code = fields[idx_child]
+                    location = fields[idx_location]
+                    stock = fields[idx_stock]
+                    kpo = fields[idx_kpo] if idx_kpo is not None else None
+                    pairing_sets_data = None
+                    if idx_pairing is not None and fields[idx_pairing]:
+                        pairing_sets_data = str(fields[idx_pairing]).split(',')
                     try:
-                        weight = Decimal(str(fields[6])) if fields[6] is not None else Decimal('0.00')
+                        weight = Decimal(str(fields[idx_weight])) if fields[idx_weight] is not None else Decimal('0.00')
                     except (ValueError, TypeError):
                         weight = Decimal('0.00')
-                        
-                    thai_baht = fields[7]
-                    usd_rate = fields[8]
-                    euro_rate = fields[9]
-                    note_1 = fields[10]
-                    note_2 = fields[11]
-                    
-                    # Handle optional images column
-                    if len(fields) > 13 and fields[13]:
-                        images_names_data = fields[13].split(',') if fields[13] else None
-                    else:
-                        images_names_data = None
-
+                    thai_baht = fields[idx_thai_baht]
+                    usd_rate = fields[idx_usd_rate]
+                    euro_rate = fields[idx_euro_rate]
+                    note_1 = fields[idx_note1]
+                    note_2 = fields[idx_note2]
+                    description = fields[idx_description] if idx_description is not None else None
+                    unit = fields[idx_unit] if idx_unit is not None else None
+                    category_name = fields[idx_category] if idx_category is not None else None
+                    images_names_data = None
+                    if idx_images_names is not None and len(fields) > idx_images_names and fields[idx_images_names]:
+                        images_names_data = str(fields[idx_images_names]).split(',')
                     product =  Product.objects.filter(child_code=child_code).first()
                     if product:
                         product.location = location
@@ -317,26 +327,35 @@ def form_view(request):
                         product.euro_rate = euro_rate
                         product.note_1 = note_1
                         product.note_2 = note_2
-                        product.save()  # Save the updated existing product
-                        # product.images_names.add(Image.objects.get(image__exact=fields[16]))
+                        if description is not None:
+                            product.description = description
+                        if unit is not None:
+                            product.unit = unit
+                        if category_name:
+                            tag_obj, _ = Tag.objects.get_or_create(name=str(category_name).strip())
+                            product.tag = tag_obj
+                        product.save()
                     else:      
-                        product = Product.objects.create(parent_code=parent_code, child_code=child_code, location=location, stock=stock, kpo=kpo, weight=weight, thai_baht=thai_baht, usd_rate=usd_rate, euro_rate=euro_rate, note_1=note_1, note_2=note_2)
-                    
-                    
+                        product = Product.objects.create(parent_code=parent_code, child_code=child_code, location=location, stock=stock, kpo=kpo, weight=weight, thai_baht=thai_baht, usd_rate=usd_rate, euro_rate=euro_rate, note_1=note_1, note_2=note_2, description=description or None, unit=unit or None)
+                        if category_name:
+                            try:
+                                tag_obj, _ = Tag.objects.get_or_create(name=str(category_name).strip())
+                                product.tag = tag_obj
+                                product.save()
+                            except Exception:
+                                pass
                     pairing_sets = []
                     if pairing_sets_data:
                         for pair_value in pairing_sets_data:
-                            pairing_set_obj, created = PairingSet.objects.get_or_create(pair_value=pair_value.strip())
+                            pairing_set_obj, created = PairingSet.objects.get_or_create(pair_value=str(pair_value).strip())
                             pairing_sets.append(pairing_set_obj)
                         product.pairing_set.set(pairing_sets)
-
                     if images_names_data:
                         images_names = []
                         for image_name in images_names_data:
-                            image_name_obj, created = ImageName.objects.get_or_create(name=image_name.strip())
+                            image_name_obj, created = ImageName.objects.get_or_create(name=str(image_name).strip())
                             images_names.append(image_name_obj)
                         product.images_names.set(images_names)
-                        
                         image_files = Image.objects.filter(image__in=[f'product_images/{img_name.name}' for img_name in images_names])
                         product.images.set(image_files)
                         product.save()
@@ -754,7 +773,7 @@ def export_to_excel(request):
     ws = wb.active
     ws.title = 'Karen Data'
 
-    columns = ['Parent Code', 'Child Code', 'Location', 'QTY', 'kpo', 'pairing_set', 'weight', 'thai_baht', 'usd_rate', 'euro_rate', 'Note 1', 'Note 2', 'Image Count']
+    columns = ['Parent Code', 'Child Code', 'Location', 'QTY', 'kpo', 'pairing_set', 'weight', 'thai_baht', 'usd_rate', 'euro_rate', 'Category', 'Unit', 'Product Description', 'Note 1', 'Note 2', 'Image Count']
     ws.append(columns)
 
     product = Product.objects.prefetch_related('pairing_set', 'images').order_by('-id')
@@ -772,6 +791,9 @@ def export_to_excel(request):
             prod.thai_baht,
             prod.usd_rate,
             prod.euro_rate,
+            (prod.tag.name if getattr(prod, 'tag', None) else ''),
+            (prod.unit or ''),
+            (prod.description or ''),
             prod.note_1,
             prod.note_2,
             prod.images.count(),
@@ -796,7 +818,7 @@ def export_selected_to_excel(request):
         ws = wb.active
         ws.title = 'Selected Products'
 
-        columns = ['Parent Code', 'Child Code', 'Location', 'QTY', 'kpo', 'pairing_set', 'weight', 'thai_baht', 'usd_rate', 'euro_rate', 'Note 1', 'Note 2', 'Image Count']
+        columns = ['Parent Code', 'Child Code', 'Location', 'QTY', 'kpo', 'pairing_set', 'weight', 'thai_baht', 'usd_rate', 'euro_rate', 'Category', 'Unit', 'Product Description', 'Note 1', 'Note 2', 'Image Count']
         ws.append(columns)
 
         products = Product.objects.filter(id__in=selected_ids).prefetch_related('pairing_set', 'images')
@@ -814,6 +836,9 @@ def export_selected_to_excel(request):
                 prod.thai_baht,
                 prod.usd_rate,
                 prod.euro_rate,
+                (prod.tag.name if getattr(prod, 'tag', None) else ''),
+                (prod.unit or ''),
+                (prod.description or ''),
                 prod.note_1,
                 prod.note_2,
                 prod.images.count(),
@@ -1553,15 +1578,15 @@ def export_customer_cart_excel(request, customer_id):
         ws.cell(row=2, column=5, value='Date:')
         ws.cell(row=2, column=6, value=timezone.now().strftime('%Y-%m-%d %H:%M'))
         ws.merge_cells(start_row=2, start_column=6, end_row=2, end_column=8)
-        salesperson_name = getattr(request.user, 'get_full_name', lambda: '')() or getattr(request.user, 'username', '')
+        salesperson_name = (getattr(cart, 'sales_person', None) or getattr(request.user, 'get_full_name', lambda: '')() or getattr(request.user, 'username', ''))
         ws.cell(row=3, column=5, value='Salesperson:')
         ws.cell(row=3, column=6, value=salesperson_name)
         ws.merge_cells(start_row=3, start_column=6, end_row=3, end_column=8)
         ws.cell(row=4, column=5, value='Doc. Ref.:')
-        ws.cell(row=4, column=6, value=str(getattr(cart, 'id', '')))
+        ws.cell(row=4, column=6, value=str(getattr(cart, 'doc_ref', None) or getattr(cart, 'id', '')))
         ws.merge_cells(start_row=4, start_column=6, end_row=4, end_column=8)
         ws.cell(row=5, column=5, value='Customer Code:')
-        ws.cell(row=5, column=6, value=str(getattr(customer, 'id', '')))
+        ws.cell(row=5, column=6, value=str(getattr(cart, 'customer_code', None) or getattr(customer, 'id', '')))
         ws.merge_cells(start_row=5, start_column=6, end_row=5, end_column=8)
 
         for r in range(1, 8):
@@ -1698,6 +1723,7 @@ def export_customer_cart_excel(request, customer_id):
         shipping_amount = float(cart.shipping_amount or 0)
         deposit_amount = float(cart.deposit_amount or 0)
         grand_total = (total_amount + shipping_amount) - deposit_amount
+        gross_weight_val = float(cart.gross_weight or 0)
         ws.append(["Total", f"{currency} {total_amount:.2f}"])
         ws.append(["Shipping", f"{currency} {shipping_amount:.2f}"])
         ws.append(["Deposit", f"{currency} {deposit_amount:.2f}"])
@@ -1716,14 +1742,15 @@ def export_customer_cart_excel(request, customer_id):
         ws.cell(row=ws.max_row, column=1).font = white_font
         ws.append([f"Total Items: {len(items_for_export)} Pcs."])
         ws.append([f"Total Quantity: {total_quantity} Pcs."])
-        ws.append(["Total Net Weight: g."])
-        ws.append(["Total Gross Weight: g."])
+        ws.append([f"Total Net Weight: {total_weight:.2f} g."])
+        ws.append([f"Total Gross Weight: {gross_weight_val:.2f} g."])
         ws.append(["Category"]) 
         ws.append([f"Earring: {earring_count} Prs."])
         ws.append([f"Ring: {ring_count} Pcs."])
         ws.append([f"Bracelet and Bangle: {bracelet_bangle_count} Pcs."])
         ws.append([f"Necklace: {necklace_count} Pcs."])
         ws.append([f"Other Accessories (Ex. Beads): {others_count} Pcs."])
+        ws.append([f"Notes: {str(cart.notes) if cart.notes else ''}"])
         
         # Style the worksheet
         from openpyxl.styles import Font, Alignment, PatternFill
@@ -1897,9 +1924,9 @@ def print_customer_cart(request, customer_id):
             'necklace_count': necklace_count,
             'others_count': others_count,
             'currency_label': currency,
-            'salesperson_name': getattr(request.user, 'get_full_name', lambda: '')() or getattr(request.user, 'username', ''),
-            'doc_ref': str(getattr(cart, 'id', '')),
-            'customer_code': str(getattr(customer, 'id', '')),
+            'salesperson_name': (getattr(cart, 'sales_person', None) or getattr(request.user, 'get_full_name', lambda: '')() or getattr(request.user, 'username', '')),
+            'doc_ref': str(getattr(cart, 'doc_ref', None) or getattr(cart, 'id', '')),
+            'customer_code': str(getattr(cart, 'customer_code', None) or getattr(customer, 'id', '')),
             'address_display': (cart.address_override or getattr(customer, 'address', '') or ''),
         }
         
@@ -2113,11 +2140,19 @@ def cart_api(request, customer_id):
                 shipping_amount = data.get('shipping_amount')
                 deposit_amount = data.get('deposit_amount')
                 notes = data.get('notes')
+                sales_person = data.get('sales_person')
+                doc_ref = data.get('doc_ref')
+                customer_code = data.get('customer_code')
+                gross_weight = data.get('gross_weight')
                 try:
                     cart.address_override = address_override
                     cart.shipping_amount = Decimal(str(shipping_amount or 0))
                     cart.deposit_amount = Decimal(str(deposit_amount or 0))
                     cart.notes = notes
+                    cart.sales_person = sales_person
+                    cart.doc_ref = doc_ref
+                    cart.customer_code = customer_code
+                    cart.gross_weight = Decimal(str(gross_weight or 0))
                     cart.save()
                     return JsonResponse({'success': True, 'message': 'Cart details updated'})
                 except Exception as e:
@@ -2195,6 +2230,10 @@ def cart_api(request, customer_id):
             'shipping_amount': float(cart.shipping_amount or 0),
             'deposit_amount': float(cart.deposit_amount or 0),
             'notes': cart.notes,
+            'sales_person': getattr(cart, 'sales_person', None),
+            'doc_ref': getattr(cart, 'doc_ref', None),
+            'customer_code': getattr(cart, 'customer_code', None),
+            'gross_weight': float(getattr(cart, 'gross_weight', 0) or 0),
         }
         return JsonResponse({'cart_items': cart_items, 'cart_info': cart_info})
     
@@ -2450,7 +2489,17 @@ def cart_android_api(request, customer_id):
                     'product': product_full,
                 })
 
-            return JsonResponse({'cart_items': cart_items})
+            cart_info = {
+                'address_override': cart.address_override,
+                'shipping_amount': float(cart.shipping_amount or 0),
+                'deposit_amount': float(cart.deposit_amount or 0),
+                'notes': cart.notes,
+                'sales_person': getattr(cart, 'sales_person', None),
+                'doc_ref': getattr(cart, 'doc_ref', None),
+                'customer_code': getattr(cart, 'customer_code', None),
+                'gross_weight': float(getattr(cart, 'gross_weight', 0) or 0),
+            }
+            return JsonResponse({'cart_items': cart_items, 'cart_info': cart_info})
 
         elif request.method == 'POST':
             try:
@@ -2518,6 +2567,28 @@ def cart_android_api(request, customer_id):
                 except CartItem.DoesNotExist:
                     return JsonResponse({'success': False, 'message': 'Cart item not found'})
 
+            elif action == 'update_cart_info':
+                address_override = data.get('address_override')
+                shipping_amount = data.get('shipping_amount')
+                deposit_amount = data.get('deposit_amount')
+                notes = data.get('notes')
+                sales_person = data.get('sales_person')
+                doc_ref = data.get('doc_ref')
+                customer_code = data.get('customer_code')
+                gross_weight = data.get('gross_weight')
+                try:
+                    cart.address_override = address_override
+                    cart.shipping_amount = Decimal(str(shipping_amount or 0))
+                    cart.deposit_amount = Decimal(str(deposit_amount or 0))
+                    cart.notes = notes
+                    cart.sales_person = sales_person
+                    cart.doc_ref = doc_ref
+                    cart.customer_code = customer_code
+                    cart.gross_weight = Decimal(str(gross_weight or 0))
+                    cart.save()
+                    return JsonResponse({'success': True, 'message': 'Cart details updated'})
+                except Exception as e:
+                    return JsonResponse({'success': False, 'message': str(e)})
             else:
                 return JsonResponse({'success': False, 'message': 'Invalid action'})
 

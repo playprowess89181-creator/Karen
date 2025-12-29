@@ -95,6 +95,20 @@
                                             </div>
                                             <div class="card-body">
                                                 <div class="row">
+                                                    <div class="col-md-4">
+                                                        <label for="cartSalesPerson">Sales Person</label>
+                                                        <input type="text" id="cartSalesPerson" class="form-control" placeholder="Enter salesperson name">
+                                                    </div>
+                                                    <div class="col-md-4">
+                                                        <label for="cartDocRef">Doc. Ref</label>
+                                                        <input type="text" id="cartDocRef" class="form-control" placeholder="Enter document reference">
+                                                    </div>
+                                                    <div class="col-md-4">
+                                                        <label for="cartCustomerCode">Customer Code</label>
+                                                        <input type="text" id="cartCustomerCode" class="form-control" placeholder="Enter customer code">
+                                                    </div>
+                                                </div>
+                                                <div class="row mt-3">
                                                     <div class="col-md-6">
                                                         <label for="cartAddress">Address (override)</label>
                                                         <textarea id="cartAddress" class="form-control" rows="3" placeholder="Enter shipping/billing address override"></textarea>
@@ -106,6 +120,12 @@
                                                     <div class="col-md-3">
                                                         <label for="cartDeposit">Deposit Amount</label>
                                                         <input type="number" step="0.01" id="cartDeposit" class="form-control" placeholder="0.00">
+                                                    </div>
+                                                </div>
+                                                <div class="row mt-3">
+                                                    <div class="col-md-3">
+                                                        <label for="cartGrossWeight">Gross Weight (g)</label>
+                                                        <input type="number" step="0.01" id="cartGrossWeight" class="form-control" placeholder="0.00">
                                                     </div>
                                                 </div>
                                                 <div class="row mt-3">
@@ -452,9 +472,13 @@ $(document).ready(function() {
     function loadCartInfo() {
         $.getJSON('{% url "cart_api" customer.id %}?currency=' + encodeURIComponent(window.selectedCurrency || ''), function(resp){
             if (resp && resp.cart_info) {
+                $('#cartSalesPerson').val(resp.cart_info.sales_person || '');
+                $('#cartDocRef').val(resp.cart_info.doc_ref || '');
+                $('#cartCustomerCode').val(resp.cart_info.customer_code || '');
                 $('#cartAddress').val(resp.cart_info.address_override || '');
                 $('#cartShipping').val(resp.cart_info.shipping_amount != null ? resp.cart_info.shipping_amount : '');
                 $('#cartDeposit').val(resp.cart_info.deposit_amount != null ? resp.cart_info.deposit_amount : '');
+                $('#cartGrossWeight').val(resp.cart_info.gross_weight != null ? resp.cart_info.gross_weight : '');
                 $('#cartNotes').val(resp.cart_info.notes || '');
             }
         });
@@ -465,9 +489,13 @@ $(document).ready(function() {
     $('#saveCartDetailsBtn').click(function(){
         const payload = {
             action: 'update_cart_info',
+            sales_person: $('#cartSalesPerson').val(),
+            doc_ref: $('#cartDocRef').val(),
+            customer_code: $('#cartCustomerCode').val(),
             address_override: $('#cartAddress').val(),
             shipping_amount: parseFloat($('#cartShipping').val() || '0') || 0,
             deposit_amount: parseFloat($('#cartDeposit').val() || '0') || 0,
+            gross_weight: parseFloat($('#cartGrossWeight').val() || '0') || 0,
             notes: $('#cartNotes').val()
         };
         $.ajax({
